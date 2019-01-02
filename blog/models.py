@@ -1,8 +1,10 @@
 # coding: utf-8
 #blog/models.py
 
+import markdown
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils.html import strip_tags
 from django.urls import reverse
 from django.utils.six import python_2_unicode_compatible
 
@@ -58,7 +60,7 @@ class Post(models.Model):
 
     # 文章摘要，可以没有文章摘要，但默认情况下 CharField 要求我们必须存入数据，否则就会报错。
     # 指定 CharField 的 blank=True 参数值后就可以允许空值了。
-    excerpt =models.CharField(max_length=200,blank=True)
+    excerpt = models.CharField(max_length=200,blank=True)
 
     # 这是分类与标签，分类与标签的模型我们已经定义在上面。
     # 我们在这里把文章对应的数据库表和分类、标签对应的数据库表关联了起来，但是关联形式稍微有点不同。
@@ -94,3 +96,20 @@ class Post(models.Model):
     def increase_views(self):
         self.views +=1
         self.save(update_fields=['views'])
+
+    def save(self,*args,**kwargs):
+        #如果没有填写摘要
+        if not self.excerpt:
+            #首先实例化一个Markdown 类,用于渲染body 的文本
+            md = markdown.Markdown(extension=[
+                'markdown.extensions.extra',
+                'markdown.extensions.codehilite',
+            ])
+            #先将Markdown 文本渲染成HTML 文本
+            # strip_tags 去掉HTML 文本的全部HTML标签
+            #从文本摘取前54个字符赋给excerpt
+            self.excerpt = strip_tags(md.convert(self.body))[:54]
+
+        #调用父类的save 方法将数据保存到数据库中
+        super(Post,self).save(*args,**kwargs)
+
