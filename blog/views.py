@@ -3,57 +3,69 @@
 
 import markdown
 from django.shortcuts import render, get_object_or_404
+from django.views.generic import ListView,DetailView
 from comments.forms import CommentForm
 from .models import Post,Category
 # Create your views here.
 
 
-def index(request):
-    """这里我们使用 all() 方法从数据库里获取了全部的文章，存在了 post_list 变量里。
-    all 方法返回的是一个 QuerySet（可以理解成一个类似于列表的数据结构），由于通常来说博客文章列表是按文章发表时间倒序排列的，
-    即最新的文章排在最前面，所以我们紧接着调用了 order_by 方法对这个返回的 queryset 进行排序。
-    排序依据的字段是 created_time，即文章的创建时间。- 号表示逆序，如果不加 - 则是正序。 接着如之前所做，
-    我们渲染了 blog\index.html 模板文件，并且把包含文章列表数据的 post_list 变量传给了模板。"""
-    post_list = Post.objects.all().order_by('-created_time')
-    return render(request,'blog/index.html',context={'post_list':post_list})
+class IndexView(ListView):
+    model = Post
+    template_name = 'blog/index.html'
+    context_object_name = 'post_list'
+
+class PostDetailView(DetailView):
+    model = Post
+    template_name = 'blog/detail.html'
+    context_object_name = 'post'
+    def get(self, request, *args, **kwargs):
+        # 覆写 get 方法的目的是因为每当文章被访问一次，就得将文章阅读量 +1
+        # get 方法返回的是一个 HttpResponse 实例
+        # 之所以需要先调用父类的 get 方法，是因为只有当 get 方法被调用后，
+        # 才有 self.object 属性，其值为 Post 模型实例，即被访问的文章 post
+        response =super(PostDetailView,self).get(request,*args,**kwargs)
+        # 将文章阅读量 +1
+        # 注意 self.object 的值就是被访问的文章 post
+        self.object.increase_views()
+        # 视图必须返回一个 HttpResponse 对象
+        return response
+
+    def get_object(self, queryset=None):
+        # 覆写 get_object 方法的目的是因为需要对 post 的 body 值进行渲染
+        post = super(PostDetailView,self).get_object(queryset=None)
+        post.body = markdown.markdown(post.body,
+                                      extensions=[
+                                          'markdown.extensions.extra',
+                                          'markdown.extensions.codehilite',
+                                          'markdown.extensions.toc',
+                                      ])
+        return post
+
+    def get_context_data(self, **kwargs):
+        # 覆写 get_context_data 的目的是因为除了将 post 传递给模板外（DetailView 已经帮我们完成），
+        # 还要把评论表单、post 下的评论列表传递给模板。
+        context = super(PostDetailView, self).get_context_data(**kwargs)
+        form = CommentForm()
+        comment_list = self.object.comment_set.all()
+        context.update({
+            'form':form,
+            'comment_list':comment_list
+        })
+        return context
 
 
-def detail(request, pk):
-
-    post = get_object_or_404(Post, pk=pk)
-
-    #阅读量+1
-    post.increase_views()
-
-    #记得在顶部引入markdown 模块
-    #给markdown渲染函数传递了额外的参数extensions,增加扩展
-    post.body = markdown.markdown(post.body,extensions=[
-        'markdown.extensions.extra',
-        'markdown.extensions.codehilite',#语法高亮扩展
-        'markdown.extensions.toc',#允许自动生成目录
-    ])
-
-    # 记得在顶部导入 CommentForm
-    form = CommentForm()
-    # 获取这篇 post 下的全部评论
-    comment_list = post.comment_set.all()
-
-    # 将文章、表单、以及文章下的评论列表作为模板变量传给 detail.html 模板，以便渲染相应数据。
-    context = {'post': post,
-               'form': form,
-               'comment_list': comment_list
-               }
-    return render(request, 'blog/detail.html', context=context)
 
 
-def archives(request,year,month):
+class ArchivesView(IndexView):
+    def get_queryset(self):
+        year = self.kwargs.get('year')
+        month = self.kwargs.get('month')
+        return super(ArchivesView,self).get_queryset().filter(created_time__year=year,
+                                                              created_time__month=month)
 
-    post_list = Post.objects.filter(created_time__year=year, created_time__month=month).order_by('-created_time')
-    return render(request,'blog/index.html', context={'post_list': post_list})
 
+class CategoryView(IndexView):
 
-def category(request,pk):
-
-    cate = get_object_or_404(Category,pk=pk)
-    post_list = Post.objects.filter(category=cate).order_by('-created_time')
-    return render(request,'blog/index.html', context={'post_list': post_list})
+    def get_queryset(self):
+        cate = get_object_or_404(Category,pk=self.kwargs.get('pk'))
+        return super(CategoryView,self).get_queryset().filter(category=cate)
