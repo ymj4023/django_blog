@@ -1,5 +1,8 @@
+#blog/templatetags/blog_tags.py
+
 from django import template
-from ..models import Post,Category
+from django.db.models.aggregates import Count
+from ..models import Post,Category,Tag
 
 register = template.Library()
 
@@ -18,9 +21,14 @@ def archives():
 @register.simple_tag
 def get_categories():
 
+
     return Category.objects.all()
 
+@register.simple_tag()
+def get_tags():
 
+    #记得在顶部引入Tag model
+    return Tag.objects.annotate(num_posts=Count('post')).filter(num_posts__gt=0)
 
 
 
